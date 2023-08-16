@@ -17,6 +17,12 @@ Example:
 python3 ./whisper.cpp/models/convert-h5-to-ggml.py ./whisper-base_hsb_2023_08_15/results-3000/ ./whisper .
 ```
 
+Script needs these additional files which are not part of a checkpoint, only generated with a complete run:
+
+- vocab.json
+- added_tokens.json
+
+
 ## quantize a model
 
 ```bash
