@@ -2,6 +2,14 @@
 
 ## convert a fine-tuned model to GGML
 
+need to install these python deps:
+
+```bash
+pip3 install torch
+pip3 install numpy
+pip3 install transformers
+```
+
 ```bash
 git clone https://github.com/openai/whisper
 git clone https://github.com/ggerganov/whisper.cpp
