@@ -37,7 +37,9 @@ Script needs these additional files which are not part of a checkpoint, only gen
 
 # quantize a model with Q5_0 method
 make quantize
+./quantize ../ggml-model.bin ../ggml-model.q4_0.bin q4_0
 ./quantize ../ggml-model.bin ../ggml-model.q5_0.bin q5_0
+./quantize ../ggml-model.bin ../ggml-model.q8_0.bin q8_0
 ```
 
 TODO what is the best quantization for optimum performance?
