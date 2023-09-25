@@ -11,14 +11,14 @@ Beta: [v1.4.2](https://github.com/ggerganov/whisper.cpp/releases/tag/v1.4.2) / S
 High-performance inference of [OpenAI's Whisper](https://github.com/openai/whisper) automatic speech recognition (ASR) model:
 
 - Plain C/C++ implementation without dependencies
-- Apple silicon first-class citizen - optimized via ARM NEON, Accelerate framework and [Core ML](https://github.com/ggerganov/whisper.cpp#core-ml-support)
+- Apple Silicon first-class citizen - optimized via ARM NEON, Accelerate framework, Metal and [Core ML](https://github.com/ggerganov/whisper.cpp#core-ml-support)
 - AVX intrinsics support for x86 architectures
 - VSX intrinsics support for POWER architectures
 - Mixed F16 / F32 precision
 - [4-bit and 5-bit integer quantization support](https://github.com/ggerganov/whisper.cpp#quantization)
 - Low memory usage (Flash Attention)
 - Zero memory allocations at runtime
-- Runs on the CPU
+- Support for CPU-only inference
 - [Partial GPU support for NVIDIA via cuBLAS](https://github.com/ggerganov/whisper.cpp#nvidia-gpu-support-via-cublas)
 - [Partial OpenCL GPU support via CLBlast](https://github.com/ggerganov/whisper.cpp#opencl-gpu-support-via-clblast)
 - [BLAS CPU support via OpenBLAS](https://github.com/ggerganov/whisper.cpp#blas-cpu-support-via-openblas)
@@ -50,6 +50,10 @@ You can also easily make your own offline voice assistant application: [command]
 
 https://user-images.githubusercontent.com/1991296/204038393-2f846eae-c255-4099-a76d-5735c25c49da.mp4
 
+On Apply Silicon, the inference runs fully on the GPU via Metal:
+
+https://github.com/ggerganov/whisper.cpp/assets/1991296/c82e8f86-60dc-49f2-b048-d2fdbd6b5225
+
 Or you can even run it straight in the browser: [talk.wasm](examples/talk.wasm)
 
 ## Implementation details
@@ -61,7 +65,7 @@ Or you can even run it straight in the browser: [talk.wasm](examples/talk.wasm)
 - Various other examples are available in the [examples](examples) folder
 
 The tensor operators are optimized heavily for Apple silicon CPUs. Depending on the computation size, Arm Neon SIMD
-instrisics or CBLAS Accelerate framework routines are used. The latter are especially effective for bigger sizes since
+intrinsics or CBLAS Accelerate framework routines are used. The latter are especially effective for bigger sizes since
 the Accelerate framework utilizes the special-purpose AMX coprocessor available in modern Apple products.
 
 ## Quick start
@@ -109,30 +113,37 @@ options:
   -d  N,     --duration N        [0      ] duration of audio to process in milliseconds
   -mc N,     --max-context N     [-1     ] maximum number of text context tokens to store
   -ml N,     --max-len N         [0      ] maximum segment length in characters
-  -bo N,     --best-of N         [5      ] number of best candidates to keep
+  -sow,      --split-on-word     [false  ] split on word rather than on token
+  -bo N,     --best-of N         [2      ] number of best candidates to keep
   -bs N,     --beam-size N       [-1     ] beam size for beam search
   -wt N,     --word-thold N      [0.01   ] word timestamp probability threshold
   -et N,     --entropy-thold N   [2.40   ] entropy threshold for decoder fail
   -lpt N,    --logprob-thold N   [-1.00  ] log probability threshold for decoder fail
-  -su,       --speed-up          [false  ] speed up audio by x2 (reduced accuracy)
+  -debug,    --debug-mode        [false  ] enable debug mode (eg. dump log_mel)
   -tr,       --translate         [false  ] translate from source language to english
-  -tdrz,     --tinydiarize       [false  ] enable tinydiarize (requires a tdrz model)
   -di,       --diarize           [false  ] stereo audio diarization
+  -tdrz,     --tinydiarize       [false  ] enable tinydiarize (requires a tdrz model)
   -nf,       --no-fallback       [false  ] do not use temperature fallback while decoding
   -otxt,     --output-txt        [false  ] output result in a text file
   -ovtt,     --output-vtt        [false  ] output result in a vtt file
   -osrt,     --output-srt        [false  ] output result in a srt file
+  -olrc,     --output-lrc        [false  ] output result in a lrc file
   -owts,     --output-words      [false  ] output script for generating karaoke video
+  -fp,       --font-path         [/System/Library/Fonts/Supplemental/Courier New Bold.ttf] path to a monospace font for karaoke video
   -ocsv,     --output-csv        [false  ] output result in a CSV file
+  -oj,       --output-json       [false  ] output result in a JSON file
   -of FNAME, --output-file FNAME [       ] output file path (without file extension)
   -ps,       --print-special     [false  ] print special tokens
   -pc,       --print-colors      [false  ] print colors
   -pp,       --print-progress    [false  ] print progress
-  -nt,       --no-timestamps     [true   ] do not print timestamps
+  -nt,       --no-timestamps     [false  ] do not print timestamps
   -l LANG,   --language LANG     [en     ] spoken language ('auto' for auto-detect)
+  -dl,       --detect-language   [false  ] exit after automatically detecting language
              --prompt PROMPT     [       ] initial prompt
   -m FNAME,  --model FNAME       [models/ggml-base.en.bin] model path
   -f FNAME,  --file FNAME        [       ] input WAV file path
+  -oved D,   --ov-e-device DNAME [CPU    ] the OpenVINO device used for encode inference
+  -ls,       --log-score         [false  ] log best decoder scores of token
 
 
 bash ./models/download-ggml-model.sh base.en
@@ -287,8 +298,8 @@ speed-up - more than x3 faster compared with CPU-only execution. Here are the in
   WHISPER_COREML=1 make -j
 
   # using CMake
-  cd build
-  cmake -DWHISPER_COREML=1 ..
+  cmake -B build -DWHISPER_COREML=1
+  cmake --build build -j --config Release
   ```
 
 - Run the examples as usual. For example:
@@ -366,8 +377,8 @@ This can result in significant speedup in encoder performance. Here are the inst
 
   And then build the project using cmake:
   ```bash
-  cd build
-  cmake -DWHISPER_OPENVINO=1 ..
+  cmake -B build -DWHISPER_OPENVINO=1
+  cmake --build build -j --config Release
   ```
 
 - Run the examples as usual. For example:
@@ -418,11 +429,9 @@ make clean
 WHISPER_CLBLAST=1 make -j
 
 CMake:
-cd whisper.cpp ; mkdir build ; cd build
-cmake -DWHISPER_CLBLAST=ON  ..
-make clean
-make -j
-cp bin/* ../ 
+cd whisper.cpp
+cmake -B build -DWHISPER_CLBLAST=ON
+cmake --build build -j --config Release
 ```
 
 
@@ -721,7 +730,7 @@ in [models](models).
 ## [Bindings](https://github.com/ggerganov/whisper.cpp/discussions/categories/bindings)
 
 - [X] Rust: [tazz4843/whisper-rs](https://github.com/tazz4843/whisper-rs) | [#310](https://github.com/ggerganov/whisper.cpp/discussions/310)
-- [X] Javascript: [bindings/javascript](bindings/javascript) | [#309](https://github.com/ggerganov/whisper.cpp/discussions/309)
+- [X] JavaScript: [bindings/javascript](bindings/javascript) | [#309](https://github.com/ggerganov/whisper.cpp/discussions/309)
   - React Native (iOS / Android): [whisper.rn](https://github.com/mybigday/whisper.rn)
 - [X] Go: [bindings/go](bindings/go) | [#312](https://github.com/ggerganov/whisper.cpp/discussions/312)
 - [X] Java:
