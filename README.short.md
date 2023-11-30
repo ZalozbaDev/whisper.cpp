@@ -18,11 +18,13 @@ git clone https://github.com/ggerganov/whisper.cpp
 python3 ./whisper.cpp/models/convert-h5-to-ggml.py ./path/to/your/fine/tuned/model/ ./whisper .
 ```
 
-Example:
+Examples:
 
 ```bash
 
 python3 ./whisper.cpp/models/convert-h5-to-ggml.py ./whisper-base_hsb_2023_08_15/results-3000/ ./whisper .
+
+python3 ./whisper.cpp/models/convert-h5-to-ggml.py ./hsb_stt_demo/hsb_whisper/ ./whisper .
 ```
 
 Script needs these additional files which are not part of a checkpoint, only generated with a complete run:
