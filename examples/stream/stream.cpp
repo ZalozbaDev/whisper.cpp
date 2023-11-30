@@ -2,7 +2,6 @@
 //
 // A very quick-n-dirty implementation serving mainly as a proof of concept.
 //
-#include <fstream>
 #include "common-sdl.h"
 #include "common.h"
 #include "whisper.h"
@@ -13,60 +12,8 @@
 #include <thread>
 #include <vector>
 #include <fstream>
-#include <ctime>
 
-class SimpleWavWriter {
-private:
-    std::ofstream file;
-    int32_t dataSize = 0;
 
-public:
-    SimpleWavWriter(const std::string &filename, int sampleRate, int bitsPerSample, int channels) {
-        file.open(filename, std::ios::binary);
-
-        file.write("RIFF", 4);
-        file.write("\0\0\0\0", 4);    // Placeholder for file size
-        file.write("WAVE", 4);
-        file.write("fmt ", 4);
-
-        int32_t subChunkSize = 16;
-        int16_t audioFormat = 1;      // PCM format
-        int32_t byteRate = sampleRate * channels * bitsPerSample / 8;
-        int16_t blockAlign = channels * bitsPerSample / 8;
-
-        file.write(reinterpret_cast<char *>(&subChunkSize), 4);
-        file.write(reinterpret_cast<char *>(&audioFormat), 2);
-        file.write(reinterpret_cast<char *>(&channels), 2);
-        file.write(reinterpret_cast<char *>(&sampleRate), 4);
-        file.write(reinterpret_cast<char *>(&byteRate), 4);
-        file.write(reinterpret_cast<char *>(&blockAlign), 2);
-        file.write(reinterpret_cast<char *>(&bitsPerSample), 2);
-        file.write("data", 4);
-        file.write("\0\0\0\0", 4);    // Placeholder for data size
-    }
-
-    void writeData(const float *data, size_t length) {
-        for (size_t i = 0; i < length; ++i) {
-            int16_t intSample = static_cast<int16_t>(data[i] * 32767);
-            file.write(reinterpret_cast<char *>(&intSample), sizeof(int16_t));
-            dataSize += sizeof(int16_t);
-        }
-        if (file.is_open()) {
-            file.seekp(4, std::ios::beg);
-            int32_t fileSize = 36 + dataSize;
-            file.write(reinterpret_cast<char *>(&fileSize), 4);
-            file.seekp(40, std::ios::beg);
-            file.write(reinterpret_cast<char *>(&dataSize), 4);
-            file.seekp(0, std::ios::end);
-        }
-    }
-
-    ~SimpleWavWriter() {
-        if (file.is_open()) {
-            file.close();
-        }
-    }
-};
 //  500 -> 00:05.000
 // 6000 -> 01:00.000
 std::string to_timestamp(int64_t t) {
@@ -101,11 +48,12 @@ struct whisper_params {
     bool no_context    = true;
     bool no_timestamps = false;
     bool tinydiarize   = false;
+    bool save_audio    = false; // save audio to wav file
+    bool use_gpu       = true;
 
     std::string language  = "en";
     std::string model     = "models/ggml-base.en.bin";
     std::string fname_out;
-    bool save_audio = false; // save audio to wav file
 };
 
 void whisper_print_usage(int argc, char ** argv, const whisper_params & params);
@@ -118,25 +66,26 @@ bool whisper_params_parse(int argc, char ** argv, whisper_params & params) {
             whisper_print_usage(argc, argv, params);
             exit(0);
         }
-        else if (arg == "-t"   || arg == "--threads")       { params.n_threads     = std::stoi(argv[++i]); }
-        else if (                 arg == "--step")          { params.step_ms       = std::stoi(argv[++i]); }
-        else if (                 arg == "--length")        { params.length_ms     = std::stoi(argv[++i]); }
-        else if (                 arg == "--keep")          { params.keep_ms       = std::stoi(argv[++i]); }
-        else if (arg == "-c"   || arg == "--capture")       { params.capture_id    = std::stoi(argv[++i]); }
-        else if (arg == "-mt"  || arg == "--max-tokens")    { params.max_tokens    = std::stoi(argv[++i]); }
-        else if (arg == "-ac"  || arg == "--audio-ctx")     { params.audio_ctx     = std::stoi(argv[++i]); }
-        else if (arg == "-vth" || arg == "--vad-thold")     { params.vad_thold     = std::stof(argv[++i]); }
-        else if (arg == "-fth" || arg == "--freq-thold")    { params.freq_thold    = std::stof(argv[++i]); }
-        else if (arg == "-su"  || arg == "--speed-up")      { params.speed_up      = true; }
-        else if (arg == "-tr"  || arg == "--translate")     { params.translate     = true; }
-        else if (arg == "-nf"  || arg == "--no-fallback")   { params.no_fallback   = true; }
-        else if (arg == "-ps"  || arg == "--print-special") { params.print_special = true; }
-        else if (arg == "-kc"  || arg == "--keep-context")  { params.no_context    = false; }
-        else if (arg == "-l"   || arg == "--language")      { params.language      = argv[++i]; }
-        else if (arg == "-m"   || arg == "--model")         { params.model         = argv[++i]; }
-        else if (arg == "-f"   || arg == "--file")          { params.fname_out     = argv[++i]; }
-        else if (arg == "-tdrz" || arg == "--tinydiarize")  { params.tinydiarize   = true; }
-        else if (arg == "-sa"  || arg == "--save-audio")    { params.save_audio    = true; }
+        else if (arg == "-t"    || arg == "--threads")       { params.n_threads     = std::stoi(argv[++i]); }
+        else if (                  arg == "--step")          { params.step_ms       = std::stoi(argv[++i]); }
+        else if (                  arg == "--length")        { params.length_ms     = std::stoi(argv[++i]); }
+        else if (                  arg == "--keep")          { params.keep_ms       = std::stoi(argv[++i]); }
+        else if (arg == "-c"    || arg == "--capture")       { params.capture_id    = std::stoi(argv[++i]); }
+        else if (arg == "-mt"   || arg == "--max-tokens")    { params.max_tokens    = std::stoi(argv[++i]); }
+        else if (arg == "-ac"   || arg == "--audio-ctx")     { params.audio_ctx     = std::stoi(argv[++i]); }
+        else if (arg == "-vth"  || arg == "--vad-thold")     { params.vad_thold     = std::stof(argv[++i]); }
+        else if (arg == "-fth"  || arg == "--freq-thold")    { params.freq_thold    = std::stof(argv[++i]); }
+        else if (arg == "-su"   || arg == "--speed-up")      { params.speed_up      = true; }
+        else if (arg == "-tr"   || arg == "--translate")     { params.translate     = true; }
+        else if (arg == "-nf"   || arg == "--no-fallback")   { params.no_fallback   = true; }
+        else if (arg == "-ps"   || arg == "--print-special") { params.print_special = true; }
+        else if (arg == "-kc"   || arg == "--keep-context")  { params.no_context    = false; }
+        else if (arg == "-l"    || arg == "--language")      { params.language      = argv[++i]; }
+        else if (arg == "-m"    || arg == "--model")         { params.model         = argv[++i]; }
+        else if (arg == "-f"    || arg == "--file")          { params.fname_out     = argv[++i]; }
+        else if (arg == "-tdrz" || arg == "--tinydiarize")   { params.tinydiarize   = true; }
+        else if (arg == "-sa"   || arg == "--save-audio")    { params.save_audio    = true; }
+        else if (arg == "-ng"   || arg == "--no-gpu")        { params.use_gpu       = false; }
 
         else {
             fprintf(stderr, "error: unknown argument: %s\n", arg.c_str());
@@ -171,8 +120,9 @@ void whisper_print_usage(int /*argc*/, char ** argv, const whisper_params & para
     fprintf(stderr, "  -l LANG,  --language LANG [%-7s] spoken language\n",                                params.language.c_str());
     fprintf(stderr, "  -m FNAME, --model FNAME   [%-7s] model path\n",                                     params.model.c_str());
     fprintf(stderr, "  -f FNAME, --file FNAME    [%-7s] text output file name\n",                          params.fname_out.c_str());
-    fprintf(stderr, "  -tdrz,     --tinydiarize  [%-7s] enable tinydiarize (requires a tdrz model)\n",     params.tinydiarize ? "true" : "false");
+    fprintf(stderr, "  -tdrz,    --tinydiarize   [%-7s] enable tinydiarize (requires a tdrz model)\n",     params.tinydiarize ? "true" : "false");
     fprintf(stderr, "  -sa,      --save-audio    [%-7s] save the recorded audio to a file\n",              params.save_audio ? "true" : "false");
+    fprintf(stderr, "  -ng,      --no-gpu        [%-7s] disable GPU inference\n",                          params.use_gpu ? "false" : "true");
     fprintf(stderr, "\n");
 }
 
@@ -216,7 +166,10 @@ int main(int argc, char ** argv) {
         exit(0);
     }
 
-    struct whisper_context * ctx = whisper_init_from_file(params.model.c_str());
+    struct whisper_context_params cparams;
+    cparams.use_gpu = params.use_gpu;
+
+    struct whisper_context * ctx = whisper_init_from_file_with_params(params.model.c_str(), cparams);
 
     std::vector<float> pcmf32    (n_samples_30s, 0.0f);
     std::vector<float> pcmf32_old;
@@ -266,8 +219,9 @@ int main(int argc, char ** argv) {
             return 1;
         }
     }
+
+    wav_writer wavWriter;
     // save wav file
-    SimpleWavWriter *wavWriter = nullptr;
     if (params.save_audio) {
         // Get current date/time for filename
         time_t now = time(0);
@@ -275,7 +229,7 @@ int main(int argc, char ** argv) {
         strftime(buffer, sizeof(buffer), "%Y%m%d%H%M%S", localtime(&now));
         std::string filename = std::string(buffer) + ".wav";
 
-        wavWriter = new SimpleWavWriter(filename, WHISPER_SAMPLE_RATE, 16, 1);
+        wavWriter.open(filename, WHISPER_SAMPLE_RATE, 16, 1);
     }
     printf("[Start speaking]\n");
     fflush(stdout);
@@ -285,8 +239,8 @@ int main(int argc, char ** argv) {
 
     // main audio loop
     while (is_running) {
-        if (params.save_audio && wavWriter) {
-            wavWriter->writeData(pcmf32_new.data(), pcmf32_new.size());
+        if (params.save_audio) {
+            wavWriter.write(pcmf32_new.data(), pcmf32_new.size());
         }
         // handle Ctrl + C
         is_running = sdl_poll_events();
