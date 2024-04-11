@@ -24,6 +24,12 @@ Examples:
 
 python3 ./whisper.cpp/models/convert-h5-to-ggml.py ./whisper-base_hsb_2023_08_15/results-3000/ ./whisper .
 
+
+git clone https://huggingface.co/openai/whisper-small
+
+cp whisper-small/vocab.json hsb_stt_demo/hsb_whisper/
+cp whisper-small/added_tokens.json hsb_stt_demo/hsb_whisper/
+
 python3 ./whisper.cpp/models/convert-h5-to-ggml.py ./hsb_stt_demo/hsb_whisper/ ./whisper .
 ```
 
