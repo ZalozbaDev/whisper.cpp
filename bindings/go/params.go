@@ -47,10 +47,6 @@ func (p *Params) SetPrintTimestamps(v bool) {
 	p.print_timestamps = toBool(v)
 }
 
-func (p *Params) SetSpeedup(v bool) {
-	p.speed_up = toBool(v)
-}
-
 // Set language id
 func (p *Params) SetLanguage(lang int) error {
 	if lang == -1 {
@@ -123,6 +119,11 @@ func (p *Params) SetAudioCtx(n int) {
 	p.audio_ctx = C.int(n)
 }
 
+// Set initial prompt
+func (p *Params) SetInitialPrompt(prompt string) {
+	p.initial_prompt = C.CString(prompt)
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // PRIVATE METHODS
 
@@ -147,6 +148,7 @@ func (p *Params) String() string {
 	str += fmt.Sprintf(" offset_ms=%d", p.offset_ms)
 	str += fmt.Sprintf(" duration_ms=%d", p.duration_ms)
 	str += fmt.Sprintf(" audio_ctx=%d", p.audio_ctx)
+	str += fmt.Sprintf(" initial_prompt=%s", C.GoString(p.initial_prompt))
 	if p.translate {
 		str += " translate"
 	}
@@ -170,9 +172,6 @@ func (p *Params) String() string {
 	}
 	if p.token_timestamps {
 		str += " token_timestamps"
-	}
-	if p.speed_up {
-		str += " speed_up"
 	}
 
 	return str + ">"

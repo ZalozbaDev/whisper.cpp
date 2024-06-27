@@ -76,11 +76,6 @@ func (context *context) SetTranslate(v bool) {
 	context.params.SetTranslate(v)
 }
 
-// Set speedup flag
-func (context *context) SetSpeedup(v bool) {
-	context.params.SetSpeedup(v)
-}
-
 func (context *context) SetSplitOnWord(v bool) {
 	context.params.SetSplitOnWord(v)
 }
@@ -128,6 +123,11 @@ func (context *context) SetMaxTokensPerSegment(n uint) {
 // Set audio encoder context
 func (context *context) SetAudioCtx(n uint) {
 	context.params.SetAudioCtx(int(n))
+}
+
+// Set initial prompt
+func (context *context) SetInitialPrompt(prompt string) {
+	context.params.SetInitialPrompt(prompt)
 }
 
 // ResetTimings resets the mode timings. Should be called before processing
