@@ -17,12 +17,20 @@
 #include "ggml-sycl.h"
 #endif
 
+#ifdef GGML_USE_VULKAN
+#include "ggml-vulkan.h"
+#endif
+
 #ifdef GGML_USE_BLAS
 #include "ggml-blas.h"
 #endif
 
 #ifdef WHISPER_USE_OPENVINO
 #include "openvino/whisper-openvino-encoder.h"
+#endif
+
+#ifdef GGML_USE_CANN
+#include "ggml-cann.h"
 #endif
 
 #include "ggml.h"
@@ -169,7 +177,7 @@ static bool ggml_graph_compute_helper(
                          int   n_threads,
          ggml_abort_callback   abort_callback,
                         void * abort_callback_data) {
-    struct ggml_cplan plan = ggml_graph_plan(graph, n_threads);
+    struct ggml_cplan plan = ggml_graph_plan(graph, n_threads, nullptr);
 
     plan.abort_callback      = abort_callback;
     plan.abort_callback_data = abort_callback_data;
@@ -1269,6 +1277,28 @@ static ggml_backend_t whisper_backend_init_gpu(const whisper_context_params & pa
     }
 #endif
 
+#ifdef GGML_USE_VULKAN
+    if (params.use_gpu) {
+        WHISPER_LOG_INFO("%s: using Vulkan backend\n", __func__);
+        result = ggml_backend_vk_init(params.gpu_device);
+        if (!result) {
+            WHISPER_LOG_ERROR("%s: ggml_backend_vk_init() failed\n", __func__);
+        }
+    }
+#endif
+
+#ifdef GGML_USE_CANN
+    if (params.use_gpu) {
+        WHISPER_LOG_INFO("%s: using CANN backend\n", __func__);
+        result = ggml_backend_cann_init(params.gpu_device);
+        if (!result) {
+            WHISPER_LOG_ERROR("%s: ggml_backend_cann_init() failed\n", __func__);
+        }
+    }
+#endif
+
+    GGML_UNUSED(params);
+
     return result;
 }
 
@@ -1315,6 +1345,14 @@ static ggml_backend_buffer_type_t whisper_default_buffer_type(const whisper_cont
 
 #ifdef GGML_USE_SYCL
     result || (result = ggml_backend_sycl_buffer_type(params.gpu_device));
+#endif
+
+#ifdef GGML_USE_VULKAN
+    result || (result = ggml_backend_vk_buffer_type(params.gpu_device));
+#endif
+
+#ifdef GGML_USE_CANN
+    result || (result == ggml_backend_cann_buffer_type(params.gpu_device));
 #endif
 
     result || (result = ggml_backend_cpu_buffer_type());
@@ -1902,7 +1940,7 @@ static struct ggml_cgraph * whisper_build_graph_conv(
     ggml_set_input(mel_inp);
 
     ggml_tensor * mel;
-    {
+    if (ggml_nelements(mel_inp) > 0) {
         const int n_len = int(mel_inp->ne[0]);
         const int out_s = 2 * n_ctx;
         const int i0 = std::min(mel_offset, n_len);
@@ -1919,6 +1957,9 @@ static struct ggml_cgraph * whisper_build_graph_conv(
         } else {
             mel = ggml_cont(ctx0, cur);
         }
+    } else {
+        // empty mel - just create a dummy tensor with the correct size
+        mel = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, 2*n_ctx, n_mels);
     }
 
     ggml_set_name(mel, "mel");
@@ -2083,7 +2124,7 @@ static struct ggml_cgraph * whisper_build_graph_encoder(
                             ggml_element_size(kv_pad.v)*n_state_head,
                             0);
 
-                cur = ggml_flash_attn_ext(ctx0, Q, K, V, nullptr, KQscale, 0.0f);
+                cur = ggml_flash_attn_ext(ctx0, Q, K, V, nullptr, KQscale, 0.0f, 0.0f);
 
                 cur = ggml_reshape_2d(ctx0, cur, n_state, n_ctx);
             } else {
@@ -2522,7 +2563,7 @@ static struct ggml_cgraph * whisper_build_graph_decoder(
                             ggml_element_size(kv_self.v)*n_state_head,
                             ggml_element_size(kv_self.v)*n_state*n_ctx*il);
 
-                cur = ggml_flash_attn_ext(ctx0, Q, K, V, KQ_mask_f16, 1.0f, 0.0f);
+                cur = ggml_flash_attn_ext(ctx0, Q, K, V, KQ_mask_f16, 1.0f, 0.0f, 0.0f);
 
                 cur = ggml_reshape_2d(ctx0, cur, n_state, n_tokens);
             } else {
@@ -2604,7 +2645,7 @@ static struct ggml_cgraph * whisper_build_graph_decoder(
                             ggml_element_size(wstate.kv_cross.v)*n_state_head,
                             ggml_element_size(wstate.kv_cross.v)*n_state*n_audio_ctx_pad*il);
 
-                cur = ggml_flash_attn_ext(ctx0, Q, Kcross, Vcross, nullptr, KQscale, 0.0f);
+                cur = ggml_flash_attn_ext(ctx0, Q, Kcross, Vcross, nullptr, KQscale, 0.0f, 0.0f);
 
                 cur = ggml_reshape_2d(ctx0, cur, n_state, n_tokens);
             } else {
@@ -2853,7 +2894,7 @@ static bool whisper_decode_internal(
             ggml_backend_tensor_set(KQ_mask, wstate.inp_mask.data(), 0, ggml_nelements(KQ_mask)*sizeof(float));
         }
 
-        logits = gf->nodes[gf->n_nodes - 1];
+        logits = ggml_graph_node(gf, -1);
 
         if (!ggml_graph_compute_helper(sched, gf, n_threads)) {
             return false;
@@ -2949,7 +2990,7 @@ struct whisper_global_cache {
 // Mel spectrogram
 
 void whisper_mel_init(whisper_mel & mel, ggml_backend_t backend, int n_len, int n_len_org, int n_mel) {
-    WHISPER_LOG_INFO("%s: n_len = %d, n_len_org = %d, n_mel = %d\n", __func__, n_len, n_len_org, n_mel);
+    //WHISPER_LOG_INFO("%s: n_len = %d, n_len_org = %d, n_mel = %d\n", __func__, n_len, n_len_org, n_mel);
     mel.n_len_org = n_len_org;
     assert(!mel.ctx);
     mel.ctx = ggml_init({ggml_tensor_overhead(), nullptr, true});
@@ -4316,8 +4357,8 @@ const char * whisper_print_system_info(void) {
     s += "VSX = "       + std::to_string(ggml_cpu_has_vsx())       + " | ";
     s += "CUDA = "      + std::to_string(ggml_cpu_has_cuda())      + " | ";
     s += "COREML = "    + std::to_string(whisper_has_coreml())     + " | ";
-    s += "OPENVINO = "  + std::to_string(whisper_has_openvino())          ;
-
+    s += "OPENVINO = "  + std::to_string(whisper_has_openvino())   + " | ";
+    s += "CANN = "      + std::to_string(ggml_cpu_has_cann())             ;
     return s.c_str();
 }
 
@@ -7219,10 +7260,11 @@ struct median_filter_user_data {
     int filter_width;
 };
 
-static void median_filter(struct ggml_tensor * dst , const struct ggml_tensor * a, int ith, int nth, void * userdata) {
+static void median_filter(struct ggml_tensor * dst , const struct ggml_tensor * a, int ith, int /*nth*/, void * userdata) {
+    if (ith != 0) {
+        return;
+    }
     int filter_width = ((median_filter_user_data *) userdata)->filter_width;
-    WHISPER_ASSERT(nth == 1);
-    WHISPER_ASSERT(ith == 0);
     WHISPER_ASSERT(filter_width < a->ne[2]);
     WHISPER_ASSERT(filter_width % 2);
     WHISPER_ASSERT(ggml_n_dims(a) == 3);

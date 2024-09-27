@@ -54,6 +54,7 @@ if (WHISPER_COREML)
 
     set_target_properties(${TARGET} PROPERTIES
         COMPILE_FLAGS "-fobjc-arc"
+        XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC YES
         )
     set_target_properties(${TARGET} PROPERTIES FOLDER "libs")
 endif()
@@ -73,7 +74,7 @@ if (WHISPER_OPENVINO)
     set_property(TARGET ${TARGET} PROPERTY POSITION_INDEPENDENT_CODE ON)
     set(WHISPER_EXTRA_FLAGS ${WHISPER_EXTRA_FLAGS} -DWHISPER_USE_OPENVINO)
 
-    target_link_libraries(${TARGET} PRIVATE openvino::runtime)
+    target_link_libraries(${TARGET} PRIVATE ggml openvino::runtime)
     set_target_properties(${TARGET} PROPERTIES FOLDER "libs")
 endif()
 
@@ -122,6 +123,10 @@ set_target_properties(whisper PROPERTIES
 
 target_include_directories(whisper PUBLIC . ../include)
 target_compile_features   (whisper PUBLIC cxx_std_11) # don't bump
+
+if (WHISPER_EXTRA_FLAGS)
+    target_compile_options(whisper PRIVATE ${WHISPER_EXTRA_FLAGS})
+endif()
 
 target_link_libraries(whisper PUBLIC ggml)
 

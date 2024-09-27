@@ -3,12 +3,11 @@ BUILD_TARGETS = \
 	main \
 	bench \
 	quantize \
-	server \
-	tests/test-c.o
+	server
 
 # Binaries only useful for tests
 TEST_TARGETS = \
-	tests/test-backend-ops
+	tests/test-c.o
 
 # Deprecation aliases
 ifdef WHISPER_CUBLAS
@@ -141,8 +140,8 @@ else
 		command \
 		stream \
 		lsp \
-		talk \
 		talk-llama
+	# talk (TODO: disalbed)
 endif
 
 default: $(BUILD_TARGETS)
@@ -785,7 +784,8 @@ OBJ_GGML += \
 	ggml/src/ggml.o \
 	ggml/src/ggml-alloc.o \
 	ggml/src/ggml-backend.o \
-	ggml/src/ggml-quants.o
+	ggml/src/ggml-quants.o \
+	ggml/src/ggml-aarch64.o
 
 OBJ_WHISPER += \
 	src/whisper.o
@@ -916,6 +916,13 @@ ggml/src/ggml-quants.o: \
 	ggml/src/ggml-common.h
 	$(CC) $(CFLAGS)    -c $< -o $@
 
+ggml/src/ggml-aarch64.o: \
+	ggml/src/ggml-aarch64.c \
+	ggml/include/ggml.h \
+	ggml/src/ggml-aarch64.h \
+	ggml/src/ggml-common.h
+	$(CC) $(CFLAGS)    -c $< -o $@
+
 ggml/src/ggml-blas.o: \
 	ggml/src/ggml-blas.cpp \
 	ggml/include/ggml-blas.h
@@ -963,7 +970,8 @@ $(LIB_WHISPER): \
 	$(CXX) $(CXXFLAGS) -shared -fPIC -o $@ $^ $(LDFLAGS)
 
 $(LIB_WHISPER_S): \
-	$(OBJ_WHISPER)
+	$(OBJ_WHISPER) \
+	$(OBJ_GGML)
 	ar rcs $(LIB_WHISPER_S) $^
 
 # common
@@ -1040,9 +1048,6 @@ main: examples/main/main.cpp \
 	$(OBJ_GGML) $(OBJ_WHISPER) $(OBJ_COMMON)
 	$(CXX) $(CXXFLAGS) -c $< -o $(call GET_OBJ_FILE, $<)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h $<,$^) $(call GET_OBJ_FILE, $<) -o $@ $(LDFLAGS)
-	@echo
-	@echo '====  Run ./llama-cli -h for help.  ===='
-	@echo
 
 bench: examples/bench/bench.cpp \
 	$(OBJ_GGML) $(OBJ_WHISPER) $(OBJ_COMMON)
@@ -1074,12 +1079,14 @@ lsp: examples/lsp/lsp.cpp \
 	$(CXX) $(CXXFLAGS) $(CFLAGS_SDL) -c $< -o $(call GET_OBJ_FILE, $<)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h $<,$^) $(call GET_OBJ_FILE, $<) -o $@ $(LDFLAGS) $(LDFLAGS_SDL)
 
-talk: examples/talk/talk.cpp examples/talk/gpt-2.cpp \
-	$(OBJ_GGML) $(OBJ_WHISPER) $(OBJ_COMMON) $(OBJ_SDL)
-	$(CXX) $(CXXFLAGS) $(CFLAGS_SDL) -c $< -o $(call GET_OBJ_FILE, $<)
-	$(CXX) $(CXXFLAGS) $(filter-out %.h $<,$^) $(call GET_OBJ_FILE, $<) -o $@ $(LDFLAGS) $(LDFLAGS_SDL)
+# TODO: disabled until update
+#       https://github.com/ggerganov/whisper.cpp/issues/1818
+#talk: examples/talk/talk.cpp examples/talk/gpt-2.cpp \
+#	$(OBJ_GGML) $(OBJ_WHISPER) $(OBJ_COMMON) $(OBJ_SDL)
+#	$(CXX) $(CXXFLAGS) $(CFLAGS_SDL) -c $< -o $(call GET_OBJ_FILE, $<)
+#	$(CXX) $(CXXFLAGS) $(filter-out %.h $<,$^) $(call GET_OBJ_FILE, $<) -o $@ $(LDFLAGS) $(LDFLAGS_SDL)
 
-talk-llama: examples/talk-llama/talk-llama.cpp examples/talk-llama/llama.cpp examples/talk-llama/unicode.cpp examples/talk-llama/unicode-data.cpp \
+talk-llama: examples/talk-llama/talk-llama.cpp examples/talk-llama/llama.cpp examples/talk-llama/llama-vocab.cpp examples/talk-llama/llama-grammar.cpp examples/talk-llama/llama-sampling.cpp examples/talk-llama/unicode.cpp examples/talk-llama/unicode-data.cpp \
 	$(OBJ_GGML) $(OBJ_WHISPER) $(OBJ_COMMON) $(OBJ_SDL)
 	$(CXX) $(CXXFLAGS) $(CFLAGS_SDL) -c $< -o $(call GET_OBJ_FILE, $<)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h $<,$^) $(call GET_OBJ_FILE, $<) -o $@ $(LDFLAGS) $(LDFLAGS_SDL)
@@ -1092,11 +1099,6 @@ tests: $(TEST_TARGETS)
 
 tests/test-c.o: tests/test-c.c include/whisper.h
 	$(CC) $(CFLAGS) -c $(filter-out %.h,$^) -o $@
-
-tests/test-backend-ops: tests/test-backend-ops.cpp \
-	$(OBJ_GGML)
-	$(CXX) $(CXXFLAGS) -c $< -o $(call GET_OBJ_FILE, $<)
-	$(CXX) $(CXXFLAGS) $(filter-out %.h $<,$^) $(call GET_OBJ_FILE, $<) -o $@ $(LDFLAGS)
 
 #
 # Audio samples
