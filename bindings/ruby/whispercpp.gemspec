@@ -15,7 +15,8 @@ Gem::Specification.new do |s|
                 if s.extra_rdoc_files.include?(basename)
                   basename
                 else
-                  file.sub("../..", "ext")
+                  file.sub("../..", "ext/sources")
+                      .sub("../javascript", "ext/sources/bindings/javascript")
                 end
               }
 
@@ -26,7 +27,7 @@ Gem::Specification.new do |s|
   s.required_ruby_version = '>= 3.1.0'
 
   #### Documentation and testing.
-  s.homepage = 'https://github.com/ggerganov/whisper.cpp'
+  s.homepage = 'https://github.com/ggml-org/whisper.cpp'
   s.rdoc_options = ['--main', 'README.md']
 
 
