@@ -57,16 +57,16 @@ static __global__ void mul_mat_vec(
             NO_DEVICE_CODE;
 #endif // FP16_AVAILABLE
         }
-    } else if constexpr (std::is_same<T, nv_bfloat16>::value) {
-        const int * x2 = (const int *) x;
-        sumf = 0.0f;
+//    } else if constexpr (std::is_same<T, nv_bfloat16>::value) {
+//        const int * x2 = (const int *) x;
+//        sumf = 0.0f;
 
-        for (int64_t col2 = tid; col2 < ncols2; col2 += block_size) {
-            const int    tmpx = x2[col2];
-            const float2 tmpy = y2[col2];
-            sumf += float(reinterpret_cast<const nv_bfloat16 *>(&tmpx)[0]) * tmpy.x;
-            sumf += float(reinterpret_cast<const nv_bfloat16 *>(&tmpx)[1]) * tmpy.y;
-        }
+//        for (int64_t col2 = tid; col2 < ncols2; col2 += block_size) {
+//            const int    tmpx = x2[col2];
+//            const float2 tmpy = y2[col2];
+//            sumf += float(reinterpret_cast<const nv_bfloat16 *>(&tmpx)[0]) * tmpy.x;
+//            sumf += float(reinterpret_cast<const nv_bfloat16 *>(&tmpx)[1]) * tmpy.y;
+//        }
     } else {
         static_assert(std::is_same<T, void>::value, "unsupported type");
     }
@@ -231,10 +231,10 @@ void ggml_cuda_mul_mat_vec(ggml_backend_cuda_context & ctx, const ggml_tensor * 
             const half * src0_d = (const half *) src0->data;
             mul_mat_vec_cuda(src0_d, src1_d, dst_d, ne00, ne01, s01, ne02, ne12, s02, s12, s2, ne03, ne13, s03, s13, s3, prec, ctx.stream());
         } break;
-        case GGML_TYPE_BF16: {
-            const nv_bfloat16 * src0_d = (const nv_bfloat16 *) src0->data;
-            mul_mat_vec_cuda(src0_d, src1_d, dst_d, ne00, ne01, s01, ne02, ne12, s02, s12, s2, ne03, ne13, s03, s13, s3, prec, ctx.stream());
-        } break;
+//        case GGML_TYPE_BF16: {
+//            const nv_bfloat16 * src0_d = (const nv_bfloat16 *) src0->data;
+//            mul_mat_vec_cuda(src0_d, src1_d, dst_d, ne00, ne01, s01, ne02, ne12, s02, s12, s2, ne03, ne13, s03, s13, s3, prec, ctx.stream());
+//        } break;
         default:
             GGML_ABORT("unsupported type: %s", ggml_type_name(src0->type));
     }
@@ -278,12 +278,12 @@ void ggml_cuda_op_mul_mat_vec(
                 nchannels_x, nchannels_y, stride_channel_x, stride_channel_y, stride_channel_dst,
                 nsamples_x, nsamples_y, stride_sample_x, stride_sample_y, stride_sample_dst, prec, stream);
         } break;
-        case GGML_TYPE_BF16: {
-            const nv_bfloat16 * src0_d = (const nv_bfloat16 *) src0_dd_i;
-            mul_mat_vec_cuda(src0_d, src1_ddf_i, dst_dd_i, ne00, row_diff, stride_row,
-                nchannels_x, nchannels_y, stride_channel_x, stride_channel_y, stride_channel_dst,
-                nsamples_x, nsamples_y, stride_sample_x, stride_sample_y, stride_sample_dst, prec, stream);
-        } break;
+//        case GGML_TYPE_BF16: {
+//            const nv_bfloat16 * src0_d = (const nv_bfloat16 *) src0_dd_i;
+//            mul_mat_vec_cuda(src0_d, src1_ddf_i, dst_dd_i, ne00, row_diff, stride_row,
+//                nchannels_x, nchannels_y, stride_channel_x, stride_channel_y, stride_channel_dst,
+//                nsamples_x, nsamples_y, stride_sample_x, stride_sample_y, stride_sample_dst, prec, stream);
+//        } break;
         default:
             GGML_ABORT("unsupported type: %s", ggml_type_name(src0->type));
     }
