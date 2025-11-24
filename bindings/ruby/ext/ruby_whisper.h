@@ -19,8 +19,14 @@ typedef struct {
   bool diarize;
   ruby_whisper_callback_container *new_segment_callback_container;
   ruby_whisper_callback_container *progress_callback_container;
+  ruby_whisper_callback_container *encoder_begin_callback_container;
   ruby_whisper_callback_container *abort_callback_container;
+  VALUE vad_params;
 } ruby_whisper_params;
+
+typedef struct {
+  struct whisper_vad_params params;
+} ruby_whisper_vad_params;
 
 typedef struct {
   VALUE context;
@@ -30,5 +36,18 @@ typedef struct {
 typedef struct {
   VALUE context;
 } ruby_whisper_model;
+
+typedef struct {
+  struct whisper_vad_segments *segments;
+} ruby_whisper_vad_segments;
+
+typedef struct {
+  VALUE segments;
+  int index;
+} ruby_whisper_vad_segment;
+
+typedef struct {
+  struct whisper_vad_context *context;
+} ruby_whisper_vad_context;
 
 #endif
