@@ -31,6 +31,39 @@ static void replace_all(std::string & s, const std::string & search, const std::
     }
 }
 
+// Returns the number of trailing continuation bytes still needed for `s` to end
+// on a complete UTF-8 codepoint. Returns 0 if the tail of `s` is already a
+// complete codepoint (or if the tail looks malformed and we should stop merging).
+// Used to merge whisper tokens whose bytes split a multi-byte UTF-8 character
+// (e.g. CJK), so the JSON output stays valid UTF-8. See https://github.com/ggml-org/whisper.cpp/issues/1798.
+static int utf8_trailing_bytes_needed(const std::string & s) {
+    const int n = (int) s.size();
+    int i = n - 1;
+    // walk back past continuation bytes (10xxxxxx)
+    while (i >= 0 && ((unsigned char) s[i] & 0xC0) == 0x80) {
+        --i;
+    }
+    if (i < 0) {
+        // all continuation bytes, or empty — nothing we can do
+        return 0;
+    }
+    const unsigned char c = (unsigned char) s[i];
+    int expected;
+    if ((c & 0x80) == 0x00) {
+        expected = 1; // ASCII
+    } else if ((c & 0xE0) == 0xC0) {
+        expected = 2;
+    } else if ((c & 0xF0) == 0xE0) {
+        expected = 3;
+    } else if ((c & 0xF8) == 0xF0) {
+        expected = 4;
+    } else {
+        return 0;     // malformed lead, give up
+    }
+    const int have = n - i;
+    return have >= expected ? 0 : (expected - have);
+}
+
 // command-line parameters
 struct whisper_params {
     int32_t n_threads     = std::min(4, (int32_t) std::thread::hardware_concurrency());
@@ -77,6 +110,7 @@ struct whisper_params {
     bool log_score       = false;
     bool use_gpu         = true;
     bool flash_attn      = true;
+    int32_t gpu_device   = 0;
     bool suppress_nst    = false;
     bool carry_initial_prompt = false;
 
@@ -129,6 +163,10 @@ static char * requires_value_error(const std::string & arg) {
 }
 
 static bool whisper_params_parse(int argc, char ** argv, whisper_params & params) {
+    if (const char * env_device = std::getenv("WHISPER_ARG_DEVICE")) {
+        params.gpu_device = std::stoi(env_device);
+    }
+
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
 
@@ -195,6 +233,7 @@ static bool whisper_params_parse(int argc, char ** argv, whisper_params & params
         else if (arg == "-dtw"  || arg == "--dtw")                  { params.dtw             = ARGV_NEXT; }
         else if (arg == "-ls"   || arg == "--log-score")            { params.log_score       = true; }
         else if (arg == "-ng"   || arg == "--no-gpu")               { params.use_gpu         = false; }
+        else if (arg == "-dev"  || arg == "--device")               { params.gpu_device      = std::stoi(ARGV_NEXT); }
         else if (arg == "-fa"   || arg == "--flash-attn")           { params.flash_attn      = true; }
         else if (arg == "-nfa"  || arg == "--no-flash-attn")        { params.flash_attn      = false; }
         else if (arg == "-sns"  || arg == "--suppress-nst")         { params.suppress_nst    = true; }
@@ -276,6 +315,7 @@ static void whisper_print_usage(int /*argc*/, char ** argv, const whisper_params
     fprintf(stderr, "  -dtw MODEL --dtw MODEL            [%-7s] compute token-level timestamps\n",                 params.dtw.c_str());
     fprintf(stderr, "  -ls,       --log-score            [%-7s] log best decoder scores of tokens\n",              params.log_score?"true":"false");
     fprintf(stderr, "  -ng,       --no-gpu               [%-7s] disable GPU\n",                                    params.use_gpu ? "false" : "true");
+    fprintf(stderr, "  -dev N,    --device N             [%-7d] GPU device ID (default: 0)\n",                     params.gpu_device);
     fprintf(stderr, "  -fa,       --flash-attn           [%-7s] enable flash attention\n",                         params.flash_attn ? "true" : "false");
     fprintf(stderr, "  -nfa,      --no-flash-attn        [%-7s] disable flash attention\n",                        params.flash_attn ? "false" : "true");
     fprintf(stderr, "  -sns,      --suppress-nst         [%-7s] suppress non-speech tokens\n",                     params.suppress_nst ? "true" : "false");
@@ -731,18 +771,47 @@ static void output_json(
                     if (full) {
                         start_arr("tokens");
                         const int n = whisper_full_n_tokens(ctx, i);
-                        for (int j = 0; j < n; ++j) {
-                            auto token = whisper_full_get_token_data(ctx, i, j);
-                            start_obj(nullptr);
-                                value_s("text", whisper_token_to_str(ctx, token.id), false);
-                                if(token.t0 > -1 && token.t1 > -1) {
-                                    // If we have per-token timestamps, write them out
-                                    times_o(token.t0, token.t1, false);
+
+                        // Merge adjacent tokens whose bytes together form a
+                        // single UTF-8 codepoint. Multi-byte characters (CJK
+                        // in particular) can end up split across whisper
+                        // tokens, which used to produce invalid UTF-8 in the
+                        // JSON string. Refs issue #1798.
+                        struct merged_token {
+                            std::string        text;
+                            whisper_token_data data;
+                            int64_t            t1;
+                        };
+                        std::vector<merged_token> merged;
+                        merged.reserve(n);
+                        for (int j = 0; j < n; ) {
+                            auto tok = whisper_full_get_token_data(ctx, i, j);
+                            merged_token m{ whisper_token_to_str(ctx, tok.id), tok, tok.t1 };
+                            ++j;
+                            while (j < n && utf8_trailing_bytes_needed(m.text) > 0) {
+                                auto tok_next = whisper_full_get_token_data(ctx, i, j);
+                                m.text += whisper_token_to_str(ctx, tok_next.id);
+                                if (tok_next.t1 > -1) {
+                                    m.t1 = tok_next.t1;
                                 }
-                                value_i("id", token.id, false);
-                                value_f("p", token.p, false);
-                                value_f("t_dtw", token.t_dtw, true);
-                            end_obj(j == (n - 1));
+                                ++j;
+                            }
+                            merged.push_back(std::move(m));
+                        }
+
+                        const int nm = (int) merged.size();
+                        for (int j = 0; j < nm; ++j) {
+                            const auto & mt = merged[j];
+                            start_obj(nullptr);
+                                value_s("text", mt.text.c_str(), false);
+                                if (mt.data.t0 > -1 && mt.t1 > -1) {
+                                    // If we have per-token timestamps, write them out
+                                    times_o(mt.data.t0, mt.t1, false);
+                                }
+                                value_i("id", mt.data.id, false);
+                                value_f("p", mt.data.p, false);
+                                value_f("t_dtw", mt.data.t_dtw, true);
+                            end_obj(j == (nm - 1));
                         }
                         end_arr(!params.diarize && !params.tinydiarize);
                     }
@@ -1003,6 +1072,7 @@ int main(int argc, char ** argv) {
     struct whisper_context_params cparams = whisper_context_default_params();
 
     cparams.use_gpu    = params.use_gpu;
+    cparams.gpu_device = params.gpu_device;
     cparams.flash_attn = params.flash_attn;
 
     if (!params.dtw.empty()) {
