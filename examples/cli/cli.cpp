@@ -912,6 +912,50 @@ static bool output_lrc(struct whisper_context * ctx, const char * fname, const w
     return true;
 }
 
+static bool output_special(struct whisper_context * ctx)
+{
+	const int n_segments = whisper_full_n_segments(ctx);
+	
+	if (n_segments > 1)
+	{
+		fprintf(stderr, "output_special: invalid number of segments occurred: %d\n", n_segments);
+		return false;	
+	}
+	
+	int n_text_tokens = 0;
+	
+	for (int i = 0; i < n_segments; ++i) {
+		
+		float noSpeech = whisper_full_get_segment_no_speech_prob(ctx, i);
+		float probs = 0.0f;
+		double logProbs = 0.0f;
+		
+		whisper_token_data token_data;
+		const int n_tokens = whisper_full_n_tokens(ctx, i);
+		
+		for (int j = 0; j < n_tokens; j++) {
+			auto token = std::string(whisper_full_get_token_text(ctx, i, j));
+			// fprintf(stdout, "token: %s\n", whisper_full_get_token_text(ctx, i, j));
+			probs += whisper_full_get_token_p(ctx, i, j);
+			token_data = whisper_full_get_token_data(ctx, i, j);
+			logProbs += token_data.plog;
+			
+			if (!token.empty() && token.front() != '[' && token.back() != ']')
+			{
+				n_text_tokens++;
+			}
+		}
+		
+		if (n_text_tokens > 0)
+		{
+			probs /= n_text_tokens;
+			logProbs /= n_text_tokens;
+		}
+
+		printf("special_vals: %f %f %f\n", noSpeech, probs, ((float) logProbs));
+	}
+	return true;
+}
 
 static void cb_log_disable(enum ggml_log_level , const char * , void * ) { }
 
@@ -1254,6 +1298,9 @@ int main(int argc, char ** argv) {
     if (!params.no_prints) {
         whisper_print_timings(ctx);
     }
+    
+    output_special(ctx);
+    
     whisper_free(ctx);
 
     return 0;
