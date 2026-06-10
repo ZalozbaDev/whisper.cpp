@@ -916,6 +916,9 @@ static bool output_special(struct whisper_context * ctx)
 {
 	const int n_segments = whisper_full_n_segments(ctx);
 	
+	// in case the transcription does not include a lf
+	printf("\n");
+	
 	if (n_segments > 1)
 	{
 		fprintf(stderr, "output_special: invalid number of segments occurred: %d\n", n_segments);
