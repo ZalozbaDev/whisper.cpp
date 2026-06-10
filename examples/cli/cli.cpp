@@ -936,12 +936,12 @@ static bool output_special(struct whisper_context * ctx)
 		for (int j = 0; j < n_tokens; j++) {
 			auto token = std::string(whisper_full_get_token_text(ctx, i, j));
 			// fprintf(stdout, "token: %s\n", whisper_full_get_token_text(ctx, i, j));
-			probs += whisper_full_get_token_p(ctx, i, j);
-			token_data = whisper_full_get_token_data(ctx, i, j);
-			logProbs += token_data.plog;
 			
 			if (!token.empty() && token.front() != '[' && token.back() != ']')
 			{
+				probs += whisper_full_get_token_p(ctx, i, j);
+				token_data = whisper_full_get_token_data(ctx, i, j);
+				logProbs += token_data.plog;
 				n_text_tokens++;
 			}
 		}
