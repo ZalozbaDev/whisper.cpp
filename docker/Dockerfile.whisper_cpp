@@ -1,0 +1,14 @@
+################ build container for whisper.cpp / docker_vosk cmdline
+FROM nvidia/cuda:13.1.1-cudnn-devel-ubuntu24.04 AS whisper_builder
+
+RUN apt update && apt install -y libhunspell-dev libicu-dev libsndfile1-dev build-essential zlib1g-dev meson libabsl-dev \
+    libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev git cmake \
+    libboost-all-dev libresample1-dev && rm -rf /var/lib/apt/lists/*
+
+ENV CUDA_MAIN_VERSION=13.1
+
+COPY . .
+ENV LD_LIBRARY_PATH=/usr/local/cuda-${CUDA_MAIN_VERSION}/compat:$LD_LIBRARY_PATH
+RUN cmake -B build -DGGML_CUDA=1 -DCMAKE_CUDA_ARCHITECTURES=89 && cmake --build build -j4 --config Release
+
+CMD ["/bin/bash"]
