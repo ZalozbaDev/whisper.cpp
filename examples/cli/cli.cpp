@@ -1225,6 +1225,8 @@ int main(int argc, char ** argv) {
             fprintf(stderr, "\n");
         }
 
+        printf("main: analyzing %s\n", fname_inp.c_str());
+
         // run the inference
         {
             whisper_full_params wparams = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
@@ -1365,6 +1367,8 @@ int main(int argc, char ** argv) {
                 fprintf(stderr, "warning: '--output-file -' used without any other '--output-*'");
             }
         }
+
+        printf("\n\n");
     }
 
     if (!params.no_prints) {
