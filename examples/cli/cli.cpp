@@ -1412,14 +1412,14 @@ int main(int argc, char ** argv) {
             }
         }
 
+        output_special(ctx);
+    
         printf("\n\n");
     }
 
     if (!params.no_prints) {
         whisper_print_timings(ctx);
     }
-    
-    output_special(ctx);
     
     whisper_free(ctx);
 
