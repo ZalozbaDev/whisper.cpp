@@ -1412,6 +1412,8 @@ int main(int argc, char ** argv) {
             }
         }
 
+        printf("\n\n");
+        
         output_special(ctx);
     
         printf("\n\n");
